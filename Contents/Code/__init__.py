@@ -1,10 +1,12 @@
 import urllib
 import urllib2
 import re
+import json
 from BeautifulSoup import BeautifulSoup
 NAME = "HTVOnline"
-BASE_URL = "http://www.htvonline.com.vn/livetv"
-DEFAULT_ICO = 'http://static.htvonline.com.vn/layout/images/logo.png'
+ROOT_URL = 'http://hplus.com.vn/'
+BASE_URL = "http://hplus.com.vn/en/categories/live-tv"
+DEFAULT_ICO = 'http://static.hplus.com.vn/themes/front/images/logoFooter.png'
 
 def Start():
     ObjectContainer.title1 = NAME
@@ -17,24 +19,57 @@ def Start():
 def MainMenu():
     oc = ObjectContainer()
     try:
-        link = HTTP.Request(BASE_URL, cacheTime=3600).content
-        soup = BeautifulSoup(link)
-        divLiveTV = soup.findAll('div', {'id': 'divLiveTV'})
-        aChannels = BeautifulSoup(str(divLiveTV[0]))('a', {'class': 'mh-grids5-img'})
-        for channel in aChannels:
-            channel_title = BeautifulSoup(str(channel))('a')[0]['title'].encode('utf-8')
-            channel_link = BeautifulSoup(str(channel))('a')[0]['href'].encode('utf-8')
-            channel_image = BeautifulSoup(str(channel))('img')[0]['src']
-
+        # link = HTTP.Request(BASE_URL, cacheTime=3600).content
+        # soup = BeautifulSoup(link)
+        # page_title = soup('div',{'class':'page-title'})
+        # for p in page_title:
+        #     ptsoup = BeautifulSoup(str(p))
+        #     ptlink = ptsoup('a')[1]['href']
+        #     ptname = ptsoup('a')[1].contents[0]
+        #     oc.add(DirectoryObject(
+        #         key=Callback(Index, title=ptname, ilink=ptlink),
+        #         title=ptname,
+        #         thumb=R(DEFAULT_ICO)
+        #     ))
+        apilink = "http://api.htvonline.com.vn/tv_channels"
+        reqdata = '{"pageCount":200,"category_id":"-1","startIndex":0}'
+        data = getContent ( apilink , reqdata)
+        print data
+        for d in data ["data"] :
+            res = d["link_play"][0]["resolution"]
+            img = d["image"]
+            title = d["name"]+' ('+res+')'
+            link = d["link_play"][0]["mp3u8_link"]
+            # addLink(title.encode('utf-8'), link,2,img)
             oc.add(createMediaObject(
-                url=channel_link,
-                title=channel_title,
-                thumb=channel_image,
-                rating_key=channel_title
+                url=link,
+                title=title,
+                thumb=img,
+                rating_key=title
             ))
 
     except Exception, ex:
         Log("******** Error retrieving and processing latest version information. Exception is:\n" + str(ex))
+
+    return oc
+
+@route('/video/htvonline/index')
+def Index(title, ilink):
+    oc = ObjectContainer(title2=title)
+    link = HTTP.Request(ilink, cacheTime=3600).content
+    soup = BeautifulSoup(link)
+    divpanel = soup('div',{'class':'panel'})
+    for d in range(1,len(divpanel)):
+        dsoup = BeautifulSoup(str(divpanel[d]))
+        dlink = ROOT_URL+dsoup('a')[1]['href']
+        dtitle = dsoup('a')[1].contents[0].encode('utf-8')
+        dimage = re.compile("background-image: url\('(.+?)'\)").findall(str(dsoup('a')[0]['style'].encode('utf-8')))[0]
+        oc.add(createMediaObject(
+                url=dlink,
+                title=dtitle,
+                thumb=dimage,
+                rating_key=dtitle
+        ))
 
     return oc
 ####################################################################################################
@@ -42,7 +77,7 @@ def MainMenu():
 ####################################################################################################
 
 @route('/video/htvonline/createMediaObject')
-def createMediaObject(url, title, thumb, rating_key, include_container=False):
+def createMediaObject(url, title, thumb, rating_key, include_container=False,includeRelatedCount=None,includeRelated=None,includeExtras=None):
     container = Container.MP4
     video_codec = VideoCodec.H264
     audio_codec = AudioCodec.AAC
@@ -67,7 +102,6 @@ def createMediaObject(url, title, thumb, rating_key, include_container=False):
                     )
                 ],
                 container=container,
-                video_resolution='720',
                 video_codec=video_codec,
                 audio_codec=audio_codec,
                 audio_channels=audio_channels,
@@ -83,12 +117,28 @@ def createMediaObject(url, title, thumb, rating_key, include_container=False):
 
 @indirect
 def PlayVideo(url):
-    url=videolinks(url)
+    # url=videolinks(url)
     return IndirectResponse(VideoClipObject, key=url)
 
 def videolinks(url):
+    # link = urllib2.urlopen(url).read()
+    # newlink = ''.join(link.splitlines()).replace('\t', '')
+    # vlink = re.compile('file: "(.+?)",').findall(newlink)
+    # return vlink[0]
     link = urllib2.urlopen(url).read()
-    newlink = ''.join(link.splitlines()).replace('\t', '')
-    vlink = re.compile('file: "(.+?)",').findall(newlink)
+    vlink= re.compile('iosUrl = "(.+?)";').findall(link)
     return vlink[0]
+
+def getContent(url, requestdata):
+    req = urllib2 . Request(urllib . unquote_plus(url))
+    req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+    req.add_header('Authorization', 'Basic YXBpaGF5aGF5dHY6NDUlJDY2N0Bk')
+    req.add_header('User-Agent', 'Apache-HttpClient/UNAVAILABLE (java 1.4)')
+    link = urllib . urlencode({'request': requestdata})
+    resp = urllib2 . urlopen(req, link, 120)
+    content = resp . read()
+    resp . close()
+    content = '' . join(content . splitlines())
+    data = json . loads(content)
+    return data
 ####################################################################################################
